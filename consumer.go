@@ -4,8 +4,11 @@ import (
     "context"
     "fmt"
     "log"
-    //"encoding/json"
+    "time"
+    "encoding/json"
     kafka "github.com/segmentio/kafka-go"
+    client "github.com/influxdata/influxdb1-client/v2"
+
 )
 
 func getKafkaReader(kafkaURL, topic, groupID string) *kafka.Reader {
@@ -13,24 +16,57 @@ func getKafkaReader(kafkaURL, topic, groupID string) *kafka.Reader {
 		Brokers:  []string{kafkaURL},
 		GroupID:  groupID,
 		Topic:    topic,
-		MinBytes: 10e3, // 10KB
+		MinBytes: 50, // 10KB
 		MaxBytes: 10e6, // 10MB
+		MaxWait:  100 * time.Millisecond,
 	})
 }
 
 func main() {
     kafkaReader := getKafkaReader("192.168.1.106:9092", "sensors", "")
-
     defer kafkaReader.Close()
+    httpClient, err := client.NewHTTPClient(client.HTTPConfig{
+        Addr: "http://localhost:8086",
+        Username: "sensor",
+        Password: "blabla",
+    })
+    defer httpClient.Close()
+    if err != nil {
+       fmt.Println("Error: ", err.Error())
+    }
 
 	fmt.Println("start consuming ... !!")
 	for {
+                var result map[string]interface{}
 		m, err := kafkaReader.ReadMessage(context.Background())
 		if err != nil {
 			log.Fatalln(err)
 		}
-		fmt.Printf("msg: ", m.Time)
-		fmt.Printf("message at topic:%v partition:%v offset:%v	%s = %s\n", m.Topic, m.Partition, m.Offset, string(m.Key), string(m.Value))
+		bp, err := client.NewBatchPoints(client.BatchPointsConfig{
+			Database:  "sensors",
+			Precision: "s",
+		})
+                json.Unmarshal([]byte(m.Value),  &result)
+		tags := map[string]string {"sensor": result["Device_ID"].(string)}
+		fields := map[string]interface{}{
+			"temp": result["temp"].(float64),
+			"hum": result["hum"].(float64),
+			"bat": result["bat"].(float64),
+			"lum": result["lum"].(float64),
+			"x": result["x"].(float64),
+			"y": result["y"].(float64),
+			"z": result["z"].(float64),
+			"db": result["db"].(float64),
+			"button": int(result["button"].(float64)),
+		}
+		pt, err := client.NewPoint(result["Device_ID"].(string), tags, fields, m.Time)
+                if err != nil {
+                    fmt.Println("Error: ", err.Error())
+                }
+                bp.AddPoint(pt)
+		httpClient.Write(bp)
+		fmt.Printf("message: %v\n", result["button"])
+
 	}
 }
 
