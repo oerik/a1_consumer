@@ -1,3 +1,10 @@
+// Erik Oomen, jul 2019
+//
+// Read sensor kafka topic 'sensors' and store the data in 
+// influxdb.
+//
+// Warning, not written for performance or stability.
+
 package main
 
 import (
@@ -11,6 +18,12 @@ import (
 
 )
 
+const (
+        KAFKA_SERVER    = "192.168.1.106:9092"
+        SENSOR_TOPIC    = "sensors"
+        BUSINESS_TOPIC  = "business"
+)
+
 func getKafkaReader(kafkaURL, topic, groupID string) *kafka.Reader {
 	return kafka.NewReader(kafka.ReaderConfig{
 		Brokers:  []string{kafkaURL},
@@ -22,8 +35,10 @@ func getKafkaReader(kafkaURL, topic, groupID string) *kafka.Reader {
 	})
 }
 
+// Use a dump json parser to extract the sensor values and store
+// them into influxdb
 func main() {
-    kafkaReader := getKafkaReader("192.168.1.106:9092", "sensors", "group1")
+    kafkaReader := getKafkaReader(KAFKA_SERVER, SENSOR_TOPIC, "group1")
     defer kafkaReader.Close()
     httpClient, err := client.NewHTTPClient(client.HTTPConfig{
         Addr: "http://localhost:8086",
